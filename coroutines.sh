@@ -1,4 +1,4 @@
-git apply<<EOF
+git --verbose apply<<EOF
 Subject: [PATCH] test
 ---
 Index: buildSrc/build.gradle.kts
