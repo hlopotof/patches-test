@@ -41,80 +41,64 @@ finalize_cherry_pick() {
   fi
 }
 
-default_commits=(
-  82613aebb7d5c953c326afdece0ff8c6e9311ca9
-)
+build_file="buildSrc/build.gradle.kts"
 
-no_commit=true
-declare -a commits=()
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --no-commit|--nocommit)
-      no_commit=true
-      shift
-      ;;
-    --commit|--with-commit)
-      no_commit=false
-      shift
-      ;;
-    --)
-      shift
-      while [[ $# -gt 0 ]]; do
-        commits+=("$1")
-        shift
-      done
-      ;;
-    -*)
-      echo "Unknown option: $1" >&2
-      exit 2
-      ;;
-    *)
-      commits+=("$1")
-      shift
-      ;;
-  esac
-done
-
-if [[ ${#commits[@]} -eq 0 ]]; then
-  if [[ ${#default_commits[@]} -eq 0 ]]; then
-    echo "No commits specified and default list empty; aborting." >&2
-    exit 1
-  fi
-  commits=("${default_commits[@]}")
+if [[ ! -f "${build_file}" ]]; then
+  echo "Expected ${build_file} but it was not found." >&2
+  exit 1
 fi
 
-cherry_pick_args=(-X theirs)
-if [[ "${no_commit}" == true ]]; then
-  cherry_pick_args+=(--no-commit)
+if grep -Eq '^\s*//\s*warning(s)?AsError(s)?\s*(\.set)?\s*\(?\s*true\)?' "${build_file}"; then
+  echo "Warning-as-error property already commented; nothing to do."
+  exit 0
 fi
 
-for commit in "${commits[@]}"; do
-  echo "Applying commit ${commit}"
-  previous_head=$(git rev-parse HEAD)
-  if git cherry-pick "${cherry_pick_args[@]}" "${commit}"; then
-    finalize_cherry_pick "${previous_head}" "${commit}"
-    continue
+patch_candidates=()
+
+patch_candidates+=("$(
+  cat <<'EOF'
+diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
+--- a/buildSrc/build.gradle.kts
++++ b/buildSrc/build.gradle.kts
+@@
+-        warningAsError = true
++        // warningAsError = true
+EOF
+)")
+
+patch_candidates+=("$(
+  cat <<'EOF'
+diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
+--- a/buildSrc/build.gradle.kts
++++ b/buildSrc/build.gradle.kts
+@@
+-        warningsAsErrors = true
++        // warningsAsErrors = true
+EOF
+)")
+
+patch_candidates+=("$(
+  cat <<'EOF'
+diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
+--- a/buildSrc/build.gradle.kts
++++ b/buildSrc/build.gradle.kts
+@@
+-        warningsAsErrors.set(true)
++        // warningsAsErrors.set(true)
+EOF
+)")
+
+patch_applied=false
+for patch in "${patch_candidates[@]}"; do
+  if git apply --check --unidiff-zero <<<"${patch}" >/dev/null 2>&1; then
+    git apply --unidiff-zero <<<"${patch}"
+    patch_applied=true
+    echo "Commented warning-as-error property in ${build_file}."
+    break
   fi
-
-  status=$?
-  echo "Cherry-pick ${commit} exited with ${status}. Resolving by forcing commit content."
-  git status --short
-
-  conflict_files=$(git diff --name-only --diff-filter=U)
-  if [[ -z "${conflict_files}" ]]; then
-    echo "No conflict files detected, aborting cherry-pick." >&2
-    git cherry-pick --abort
-    exit "${status}"
-  fi
-
-  while IFS= read -r path; do
-    [[ -z "${path}" ]] && continue
-    echo "Forcing ${path} from commit ${commit}"
-    git checkout --theirs "${path}"
-    git add "${path}"
-  done <<<"${conflict_files}"
-
-  git cherry-pick --continue
-  finalize_cherry_pick "${previous_head}" "${commit}"
 done
+
+if [[ "${patch_applied}" != true ]]; then
+  echo "Failed to locate a warning-as-error property to comment out in ${build_file}." >&2
+  exit 1
+fi
