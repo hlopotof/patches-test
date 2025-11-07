@@ -45,7 +45,6 @@ index 07fb22c64..51e3ac529 100644
          }
          jvmMain {
 EOF
-fi
 
 git apply<<EOF
 diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
