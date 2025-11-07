@@ -110,6 +110,9 @@ diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
 EOF
 )") 
 
+echo "Checking out develop branch before applying patches."
+git checkout develop
+
 patch_applied=false
 for patch in "${patch_candidates[@]}"; do
   if git apply --check --unidiff-zero <<<"${patch}" >/dev/null 2>&1; then
