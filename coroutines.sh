@@ -24,17 +24,38 @@ ensure_git_identity() {
 
 ensure_git_identity
 
+finalize_cherry_pick() {
+  local previous_head="$1"
+  local commit="$2"
+
+  if [[ "${no_commit}" == true ]]; then
+    local current_head
+    current_head=$(git rev-parse HEAD)
+    if [[ "${current_head}" != "${previous_head}" ]]; then
+      git reset --soft "${previous_head}"
+      echo "Reset HEAD back to ${previous_head} to keep ${commit} as uncommitted changes."
+    fi
+    echo "Cherry-picked ${commit} without creating a commit."
+  else
+    echo "Cherry-picked ${commit}."
+  fi
+}
+
 default_commits=(
   82613aebb7d5c953c326afdece0ff8c6e9311ca9
 )
 
-no_commit=false
+no_commit=true
 declare -a commits=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-commit|--nocommit)
       no_commit=true
+      shift
+      ;;
+    --commit|--with-commit)
+      no_commit=false
       shift
       ;;
     --)
@@ -70,10 +91,9 @@ fi
 
 for commit in "${commits[@]}"; do
   echo "Applying commit ${commit}"
+  previous_head=$(git rev-parse HEAD)
   if git cherry-pick "${cherry_pick_args[@]}" "${commit}"; then
-    if [[ "${no_commit}" == true ]]; then
-      echo "Cherry-picked ${commit} without creating a commit."
-    fi
+    finalize_cherry_pick "${previous_head}" "${commit}"
     continue
   fi
 
@@ -96,7 +116,5 @@ for commit in "${commits[@]}"; do
   done <<<"${conflict_files}"
 
   git cherry-pick --continue
-  if [[ "${no_commit}" == true ]]; then
-    echo "Cherry-picked ${commit} without creating a commit."
-  fi
+  finalize_cherry_pick "${previous_head}" "${commit}"
 done
