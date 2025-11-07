@@ -48,7 +48,7 @@ if [[ ! -f "${build_file}" ]]; then
   exit 1
 fi
 
-if grep -Eq '^\s*//\s*warning(s)?AsError(s)?\s*(\.set)?\s*\(?\s*true\)?' "${build_file}"; then
+if grep -Eq '^\s*//\s*(warning(s)?AsError(s)?|allWarningsAsErrors)\s*(\.set)?\s*\(?\s*true\)?' "${build_file}"; then
   echo "Warning-as-error property already commented; nothing to do."
   exit 0
 fi
@@ -87,6 +87,31 @@ diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
 +        // warningsAsErrors.set(true)
 EOF
 )")
+
+patch_candidates+=("$(
+  cat <<'EOF'
+diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
+--- a/buildSrc/build.gradle.kts
++++ b/buildSrc/build.gradle.kts
+@@
+-        allWarningsAsErrors = true
++        // allWarningsAsErrors = true
+EOF
+)") 
+
+patch_candidates+=("$(
+  cat <<'EOF'
+diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
+--- a/buildSrc/build.gradle.kts
++++ b/buildSrc/build.gradle.kts
+@@
+-        allWarningsAsErrors.set(true)
++        // allWarningsAsErrors.set(true)
+EOF
+)") 
+
+echo "Checking out develop branch before applying patches."
+git checkout develop
 
 patch_applied=false
 for patch in "${patch_candidates[@]}"; do
