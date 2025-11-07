@@ -28,20 +28,52 @@ default_commits=(
   82613aebb7d5c953c326afdece0ff8c6e9311ca9
 )
 
-if [[ $# -eq 0 ]]; then
+no_commit=false
+declare -a commits=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-commit|--nocommit)
+      no_commit=true
+      shift
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        commits+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      exit 2
+      ;;
+    *)
+      commits+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ ${#commits[@]} -eq 0 ]]; then
   if [[ ${#default_commits[@]} -eq 0 ]]; then
     echo "No commits specified and default list empty; aborting." >&2
     exit 1
   fi
-  set -- "${default_commits[@]}"
+  commits=("${default_commits[@]}")
 fi
 
-while [[ $# -gt 0 ]]; do
-  commit="$1"
-  shift
+cherry_pick_args=(-X theirs)
+if [[ "${no_commit}" == true ]]; then
+  cherry_pick_args+=(--no-commit)
+fi
 
+for commit in "${commits[@]}"; do
   echo "Applying commit ${commit}"
-  if git cherry-pick -X theirs "${commit}"; then
+  if git cherry-pick "${cherry_pick_args[@]}" "${commit}"; then
+    if [[ "${no_commit}" == true ]]; then
+      echo "Cherry-picked ${commit} without creating a commit."
+    fi
     continue
   fi
 
@@ -64,4 +96,7 @@ while [[ $# -gt 0 ]]; do
   done <<<"${conflict_files}"
 
   git cherry-pick --continue
+  if [[ "${no_commit}" == true ]]; then
+    echo "Cherry-picked ${commit} without creating a commit."
+  fi
 done
