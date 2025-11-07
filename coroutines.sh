@@ -6,6 +6,24 @@ fi
 
 set -euo pipefail
 
+ensure_git_identity() {
+  local current_name
+  if ! current_name=$(git config user.name 2>/dev/null) || [[ -z "${current_name}" ]]; then
+    local fallback_name="${GIT_DEFAULT_NAME:-TeamCity}"
+    git config user.name "${fallback_name}"
+    echo "Configured git user.name to ${fallback_name}"
+  fi
+
+  local current_email
+  if ! current_email=$(git config user.email 2>/dev/null) || [[ -z "${current_email}" ]]; then
+    local fallback_email="${GIT_DEFAULT_EMAIL:-teamcity@${HOSTNAME:-localhost}}"
+    git config user.email "${fallback_email}"
+    echo "Configured git user.email to ${fallback_email}"
+  fi
+}
+
+ensure_git_identity
+
 default_commits=(
   82613aebb7d5c953c326afdece0ff8c6e9311ca9
 )
