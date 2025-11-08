@@ -48,82 +48,57 @@ if [[ ! -f "${build_file}" ]]; then
   exit 1
 fi
 
-if grep -Eq '^\s*//\s*(warning(s)?AsError(s)?|allWarningsAsErrors)\s*(\.set)?\s*\(?\s*true\)?' "${build_file}"; then
+if grep -Eq '^\s*//\s*(warning(s)?AsError(s)?|allWarningsAsErrors)\b' "${build_file}"; then
   echo "Warning-as-error property already commented; nothing to do."
   exit 0
 fi
 
-patch_candidates=()
-
-patch_candidates+=("$(
-  cat <<'EOF'
-diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
---- a/buildSrc/build.gradle.kts
-+++ b/buildSrc/build.gradle.kts
-@@
--        warningAsError = true
-+        // warningAsError = true
-EOF
-)")
-
-patch_candidates+=("$(
-  cat <<'EOF'
-diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
---- a/buildSrc/build.gradle.kts
-+++ b/buildSrc/build.gradle.kts
-@@
--        warningsAsErrors = true
-+        // warningsAsErrors = true
-EOF
-)")
-
-patch_candidates+=("$(
-  cat <<'EOF'
-diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
---- a/buildSrc/build.gradle.kts
-+++ b/buildSrc/build.gradle.kts
-@@
--        warningsAsErrors.set(true)
-+        // warningsAsErrors.set(true)
-EOF
-)")
-
-patch_candidates+=("$(
-  cat <<'EOF'
-diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
---- a/buildSrc/build.gradle.kts
-+++ b/buildSrc/build.gradle.kts
-@@
--        allWarningsAsErrors = true
-+        // allWarningsAsErrors = true
-EOF
-)") 
-
-patch_candidates+=("$(
-  cat <<'EOF'
-diff --git a/buildSrc/build.gradle.kts b/buildSrc/build.gradle.kts
---- a/buildSrc/build.gradle.kts
-+++ b/buildSrc/build.gradle.kts
-@@
--        allWarningsAsErrors.set(true)
-+        // allWarningsAsErrors.set(true)
-EOF
-)") 
-
 echo "Checking out develop branch before applying patches."
 git checkout develop
 
-patch_applied=false
-for patch in "${patch_candidates[@]}"; do
-  if git apply --check --unidiff-zero <<<"${patch}" >/dev/null 2>&1; then
-    git apply --unidiff-zero <<<"${patch}"
-    patch_applied=true
-    echo "Commented warning-as-error property in ${build_file}."
-    break
-  fi
-done
+if python3 - "${build_file}" <<'PY'
+import sys
+from pathlib import Path
 
-if [[ "${patch_applied}" != true ]]; then
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+lines = text.splitlines(keepends=True)
+
+targets = (
+    "warningAsError",
+    "warningsAsErrors",
+    "allWarningsAsErrors",
+)
+value_markers = (
+    "= true",
+    "=true",
+    ".set(true",
+    "set(true",
+)
+
+modified = False
+for index, line in enumerate(lines):
+    stripped = line.lstrip()
+    if not stripped or stripped.startswith("//"):
+        continue
+    if not any(target in line for target in targets):
+        continue
+    if not any(marker in stripped for marker in value_markers):
+        continue
+    indent_length = len(line) - len(stripped)
+    indent = line[:indent_length]
+    lines[index] = f"{indent}// {stripped}"
+    modified = True
+    break
+
+if not modified:
+    sys.exit(1)
+
+path.write_text("".join(lines), encoding="utf-8")
+PY
+then
+  echo "Commented warning-as-error property in ${build_file}."
+else
   echo "Failed to locate a warning-as-error property to comment out in ${build_file}." >&2
   exit 1
 fi
