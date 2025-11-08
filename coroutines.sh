@@ -49,6 +49,8 @@ build_targets=(
 
 commented_pattern='warning(s)?AsError(s)?|allWarningsAsErrors|setWarningsAsErrors'
 checked_out_develop=false
+patched_any=false
+already_commented_any=false
 
 for target in "${build_targets[@]}"; do
   IFS=":" read -r build_file comment_prefix target_kind <<<"${target}"
@@ -58,9 +60,19 @@ for target in "${build_targets[@]}"; do
     continue
   fi
 
+  case "${target_kind}" in
+    setWarningsCall)
+      target_description="setWarningsAsErrors call"
+      ;;
+    *)
+      target_description="warning-as-error property"
+      ;;
+  esac
+
   if grep -Eq '^\s*'"${comment_prefix//\//\\/}"'\s*('"${commented_pattern}"')\b' "${build_file}"; then
-    echo "Warning-as-error property already commented in ${build_file}; nothing to do."
-    exit 0
+    echo "The ${target_description} is already commented in ${build_file}; skipping."
+    already_commented_any=true
+    continue
   fi
 
   if [[ "${checked_out_develop}" == false ]]; then
@@ -128,10 +140,28 @@ if not modified:
 path.write_text("".join(lines), encoding="utf-8")
 PY
   then
-    echo "Commented warning-as-error property in ${build_file}."
-    exit 0
+    echo "Commented the ${target_description} in ${build_file}."
+    patched_any=true
+    continue
+  else
+    status=$?
+    if [[ "${status}" -eq 1 ]]; then
+      echo "Did not find a ${target_description} in ${build_file}; continuing."
+      continue
+    fi
+    echo "Failed to update ${build_file}; aborting." >&2
+    exit "${status}"
   fi
 done
 
-echo "Failed to locate a warning-as-error property to comment out." >&2
+if [[ "${patched_any}" == true ]]; then
+  exit 0
+fi
+
+if [[ "${already_commented_any}" == true ]]; then
+  echo "All warning-as-error targets are already commented; nothing to do."
+  exit 0
+fi
+
+echo "Failed to locate a warning-as-error target to comment out." >&2
 exit 1
