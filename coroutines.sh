@@ -41,26 +41,38 @@ finalize_cherry_pick() {
   fi
 }
 
-build_file="buildSrc/build.gradle.kts"
+build_targets=(
+  "buildSrc/build.gradle.kts://"
+  "gradle.properties:#"
+)
 
-if [[ ! -f "${build_file}" ]]; then
-  echo "Expected ${build_file} but it was not found." >&2
-  exit 1
-fi
+commented_pattern='warning(s)?AsError(s)?|allWarningsAsErrors'
+checked_out_develop=false
 
-if grep -Eq '^\s*//\s*(warning(s)?AsError(s)?|allWarningsAsErrors)\b' "${build_file}"; then
-  echo "Warning-as-error property already commented; nothing to do."
-  exit 0
-fi
+for target in "${build_targets[@]}"; do
+  IFS=":" read -r build_file comment_prefix <<<"${target}"
 
-echo "Checking out develop branch before applying patches."
-git checkout develop
+  if [[ ! -f "${build_file}" ]]; then
+    continue
+  fi
 
-if python3 - "${build_file}" <<'PY'
+  if grep -Eq '^\s*'"${comment_prefix//\//\\/}"'\s*('"${commented_pattern}"')\b' "${build_file}"; then
+    echo "Warning-as-error property already commented in ${build_file}; nothing to do."
+    exit 0
+  fi
+
+  if [[ "${checked_out_develop}" == false ]]; then
+    echo "Checking out develop branch before applying patches."
+    git checkout develop
+    checked_out_develop=true
+  fi
+
+  if python3 - "${build_file}" "${comment_prefix}" <<'PY'
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+comment_prefix = sys.argv[2]
 text = path.read_text(encoding="utf-8")
 lines = text.splitlines(keepends=True)
 
@@ -79,7 +91,7 @@ value_markers = (
 modified = False
 for index, line in enumerate(lines):
     stripped = line.lstrip()
-    if not stripped or stripped.startswith("//"):
+    if not stripped or stripped.startswith(("//", "#")):
         continue
     if not any(target in line for target in targets):
         continue
@@ -87,7 +99,7 @@ for index, line in enumerate(lines):
         continue
     indent_length = len(line) - len(stripped)
     indent = line[:indent_length]
-    lines[index] = f"{indent}// {stripped}"
+    lines[index] = f"{indent}{comment_prefix} {stripped}"
     modified = True
     break
 
@@ -96,9 +108,11 @@ if not modified:
 
 path.write_text("".join(lines), encoding="utf-8")
 PY
-then
-  echo "Commented warning-as-error property in ${build_file}."
-else
-  echo "Failed to locate a warning-as-error property to comment out in ${build_file}." >&2
-  exit 1
-fi
+  then
+    echo "Commented warning-as-error property in ${build_file}."
+    exit 0
+  fi
+done
+
+echo "Failed to locate a warning-as-error property to comment out." >&2
+exit 1
