@@ -42,15 +42,17 @@ finalize_cherry_pick() {
 }
 
 build_targets=(
+  "buildSrc/src/main/kotlin/configure-compilation-conventions.gradle.kts://:setWarningsCall"
   "buildSrc/build.gradle.kts://"
   "gradle.properties:#"
 )
 
-commented_pattern='warning(s)?AsError(s)?|allWarningsAsErrors'
+commented_pattern='warning(s)?AsError(s)?|allWarningsAsErrors|setWarningsAsErrors'
 checked_out_develop=false
 
 for target in "${build_targets[@]}"; do
-  IFS=":" read -r build_file comment_prefix <<<"${target}"
+  IFS=":" read -r build_file comment_prefix target_kind <<<"${target}"
+  target_kind="${target_kind:-warnings_property}"
 
   if [[ ! -f "${build_file}" ]]; then
     continue
@@ -67,41 +69,58 @@ for target in "${build_targets[@]}"; do
     checked_out_develop=true
   fi
 
-  if python3 - "${build_file}" "${comment_prefix}" <<'PY'
+  if python3 - "${build_file}" "${comment_prefix}" "${target_kind}" <<'PY'
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 comment_prefix = sys.argv[2]
+mode = sys.argv[3] if len(sys.argv) > 3 else "warnings_property"
 text = path.read_text(encoding="utf-8")
 lines = text.splitlines(keepends=True)
 
-targets = (
-    "warningAsError",
-    "warningsAsErrors",
-    "allWarningsAsErrors",
-)
-value_markers = (
-    "= true",
-    "=true",
-    ".set(true",
-    "set(true",
-)
-
 modified = False
-for index, line in enumerate(lines):
-    stripped = line.lstrip()
-    if not stripped or stripped.startswith(("//", "#")):
-        continue
-    if not any(target in line for target in targets):
-        continue
-    if not any(marker in stripped for marker in value_markers):
-        continue
-    indent_length = len(line) - len(stripped)
-    indent = line[:indent_length]
-    lines[index] = f"{indent}{comment_prefix} {stripped}"
-    modified = True
-    break
+if mode == "warnings_property":
+    targets = (
+        "warningAsError",
+        "warningsAsErrors",
+        "allWarningsAsErrors",
+    )
+    value_markers = (
+        "= true",
+        "=true",
+        ".set(true",
+        "set(true",
+    )
+
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith(("//", "#")):
+            continue
+        if not any(target in line for target in targets):
+            continue
+        if not any(marker in stripped for marker in value_markers):
+            continue
+        indent_length = len(line) - len(stripped)
+        indent = line[:indent_length]
+        lines[index] = f"{indent}{comment_prefix} {stripped}"
+        modified = True
+        break
+elif mode == "setWarningsCall":
+    target = "setWarningsAsErrors(project"
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith(("//", "#")):
+            continue
+        if target not in stripped:
+            continue
+        indent_length = len(line) - len(stripped)
+        indent = line[:indent_length]
+        lines[index] = f"{indent}{comment_prefix} {stripped}"
+        modified = True
+        break
+else:
+    raise SystemExit(f"Unsupported mode: {mode}")
 
 if not modified:
     sys.exit(1)
